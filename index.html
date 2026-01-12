@@ -196,19 +196,16 @@
         }
 
         .autocomplete-results {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
+            position: fixed;
             background: var(--bg-elevated);
             border: 1px solid var(--border);
-            border-top: none;
             max-height: 250px;
             overflow-y: auto;
-            z-index: 100;
+            z-index: 1000;
             display: none;
             -ms-overflow-style: none;
             scrollbar-width: none;
+            box-shadow: var(--shadow-lg);
         }
         
         .autocomplete-results::-webkit-scrollbar {
@@ -1070,8 +1067,8 @@
             }
 
             try {
-                // Use Scryfall search API directly - it supports CORS
-                const searchQuery = encodeURIComponent(`${query} (type:legendary type:creature OR type:legendary type:planeswalker OR oracle:"can be your commander")`);
+                // Use Scryfall search API with f:edh filter
+                const searchQuery = encodeURIComponent(`${query} f:edh (type:legendary type:creature OR type:legendary type:planeswalker OR oracle:"can be your commander")`);
                 const response = await fetch(
                     `https://api.scryfall.com/cards/search?q=${searchQuery}&order=name&unique=cards`,
                     { 
@@ -1092,7 +1089,16 @@
                 const data = await response.json();
                 
                 if (data.data && data.data.length > 0) {
-                    displayCommanderResults(data.data.slice(0, 8));
+                    // Sort results: prioritize names starting with query
+                    const queryLower = query.toLowerCase();
+                    const sorted = data.data.sort((a, b) => {
+                        const aStarts = a.name.toLowerCase().startsWith(queryLower);
+                        const bStarts = b.name.toLowerCase().startsWith(queryLower);
+                        if (aStarts && !bStarts) return -1;
+                        if (!aStarts && bStarts) return 1;
+                        return a.name.localeCompare(b.name);
+                    });
+                    displayCommanderResults(sorted.slice(0, 8));
                 } else {
                     document.getElementById('commander-results').classList.remove('show');
                 }
@@ -1105,11 +1111,18 @@
 
         function displayCommanderResults(cards) {
             const resultsDiv = document.getElementById('commander-results');
+            const input = document.getElementById('deck-commander');
             
             if (cards.length === 0) {
                 resultsDiv.classList.remove('show');
                 return;
             }
+            
+            // Position the dropdown relative to input
+            const rect = input.getBoundingClientRect();
+            resultsDiv.style.top = (rect.bottom + 2) + 'px';
+            resultsDiv.style.left = rect.left + 'px';
+            resultsDiv.style.width = rect.width + 'px';
 
             resultsDiv.innerHTML = cards.map(card => {
                 const imageUrl = card.image_uris?.small || 
@@ -1412,6 +1425,7 @@
         async function searchGuestCommander(entryId, query) {
             const entry = document.getElementById(`entry-${entryId}`);
             const resultsDiv = entry.querySelector('.guest-results');
+            const input = entry.querySelector('.guest-commander-input');
             
             clearTimeout(guestSearchTimeout);
             
@@ -1422,7 +1436,7 @@
             
             guestSearchTimeout = setTimeout(async () => {
                 try {
-                    const searchQuery = encodeURIComponent(`${query} (type:legendary type:creature OR type:legendary type:planeswalker OR oracle:"can be your commander")`);
+                    const searchQuery = encodeURIComponent(`${query} f:edh (type:legendary type:creature OR type:legendary type:planeswalker OR oracle:"can be your commander")`);
                     const response = await fetch(
                         `https://api.scryfall.com/cards/search?q=${searchQuery}&order=name&unique=cards`,
                         { method: 'GET', headers: { 'Accept': 'application/json' } }
@@ -1433,10 +1447,28 @@
                         return;
                     }
                     
-                    const data = await response.json();
+                    const apiData = await response.json();
                     
-                    if (data.data && data.data.length > 0) {
-                        resultsDiv.innerHTML = data.data.slice(0, 6).map(card => {
+                    if (apiData.data && apiData.data.length > 0) {
+                        // Sort results: prioritize names starting with query
+                        const queryLower = query.toLowerCase();
+                        const sorted = apiData.data.sort((a, b) => {
+                            const aStarts = a.name.toLowerCase().startsWith(queryLower);
+                            const bStarts = b.name.toLowerCase().startsWith(queryLower);
+                            if (aStarts && !bStarts) return -1;
+                            if (!aStarts && bStarts) return 1;
+                            return a.name.localeCompare(b.name);
+                        });
+                        
+                        // Position the dropdown
+                        const rect = input.getBoundingClientRect();
+                        resultsDiv.style.position = 'fixed';
+                        resultsDiv.style.top = (rect.bottom + 2) + 'px';
+                        resultsDiv.style.left = rect.left + 'px';
+                        resultsDiv.style.width = rect.width + 'px';
+                        resultsDiv.style.zIndex = '1000';
+                        
+                        resultsDiv.innerHTML = sorted.slice(0, 6).map(card => {
                             const imageUrl = card.image_uris?.small || (card.card_faces && card.card_faces[0]?.image_uris?.small) || '';
                             const colors = card.color_identity || [];
                             return `
